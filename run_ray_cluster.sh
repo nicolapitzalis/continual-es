@@ -60,24 +60,21 @@ done
 start=$(date +%s)
 python -u train_es.py \
     --ray-address $ip_head \
-    --env Swimmer-v5 \
+    --envs Hopper-v5 Walker2d-v5 Swimmer-v5 \
+    --to-train 2 \
     --sigma 0.1 \
     --alpha 0.05 \
+    --hidden-dims 64 64 \
     --iterations 1000 \
     --num-workers 12 \
     --batch-size 32 \
     --weight-decay 0.0 \
-    --adaptive-max-steps True \
     --rank-function centered \
-    --checkpoint-interval 0 \
-    --resume-from-checkpoint /home/n.pitzalis/es/chkpts/best_policy_Hopper-v5_s0.1_a0.05_n12_b32_w0.0_centered_amsTrue_daFalse_cNone_tes597361899_rew959.8888188940178.pt 
-    # --all-tasks Walker2d-v5 Swimmer-v5 Hopper-v5 
-    # --old-tasks Hopper-v5
+    --adaptive-max-steps True \
+    --checkpoint-interval 1000 \
+    --shared-output True \
+    --checkpoint '/home/n.pitzalis/es/chkpts/best_policy_log_Walker2d-v5_s0.1_a0.05_i1000_b32_w0.0_centered_amsTrue_Hopper-v5_shared_output.pth'
+    
 end=$(date +%s)
 echo "Elapsed time: $((end - start)) seconds"
 
-# python -u train_es.py \
-#     --ray-address="$ip_head" \
-#     --env=Humanoid-v5 \
-#     --num-workers=36 \
-#     --iterations=500 

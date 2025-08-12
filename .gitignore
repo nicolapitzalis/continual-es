@@ -2,3 +2,4 @@ logs/
 chkpts/
 __pycache__/
 *.pyc
+*.txt

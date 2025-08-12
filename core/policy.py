@@ -1,73 +1,71 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 class Policy(nn.Module):
-    """
-    Modular policy network with easily swappable input and output layers.
-    """
-    def __init__(self, input_layer, backbone, output_layer, output_activation):
+    def __init__(self, input_dims, hidden_dims, output_dims, output_activations, shared_output=False):
         super().__init__()
-        self.input_layer = input_layer
-        self.backbone = backbone
-        self.output_layer = output_layer
-        self.output_activation = output_activation
+        self.input_dims = input_dims
+        self.hidden_dims = hidden_dims
+        self.output_dims = output_dims
+        self.output_activations = output_activations
+        self.shared_output = shared_output
+        self.max_output_dim = max(output_dims) if self.shared_output else None
 
-    def forward(self, x):
-        x = self.input_layer(x)
-        x = self.backbone(x)
-        return self.output_activation(self.output_layer(x))
+        self.input_hidden = nn.ModuleList([nn.Linear(input_dim, hidden_dims[0]) for input_dim in input_dims])
+        self.hidden = nn.Sequential(*[nn.Linear(hidden_dims[i], hidden_dims[i + 1]) for i in range(len(hidden_dims) - 1)])
+        self.output = nn.ModuleList([nn.Linear(hidden_dims[-1], output_dim) for output_dim in output_dims]) if not self.shared_output else nn.ModuleList([nn.Linear(hidden_dims[-1], self.max_output_dim)])
+        #possibile bug con output_activations, nel caso in cui le funzioni siano diverse per task (ma in quel caso ci sarebbe da cambiare un po' tutto)
 
-def make_mlp(input_dim, hidden_sizes, activation=nn.Tanh):
-    layers = []
-    dims = [input_dim] + hidden_sizes
-    for in_dim, out_dim in zip(dims[:-1], dims[1:]):
-        layers.append(nn.Linear(in_dim, out_dim))
-        layers.append(activation())
-    return nn.Sequential(*layers)
 
-def build_policy(env, hidden_sizes=[64, 64]):
+    def forward(self, x, task_id):
+        task_id_output = task_id if not self.shared_output else 0
+        x = torch.tanh((self.input_hidden[task_id])(x))
+        for layer in self.hidden:
+            x = torch.tanh(layer(x))
+        y = self.output_activations[task_id_output]((self.output[task_id_output])(x))
+        d = self.output_dims[task_id]
+        return y[..., :d] if self.shared_output else y
+
+def substitute_task(policy, task_id, new_input_dim, new_output_dim, new_output_activation):
     """
-    Build a modular Policy network for the given environment.
+    Substitute the task-specific layers with new dimensions and activation.
     """
-    obs_dim = env.observation_space.shape[0]
-    act_space = env.action_space
+    policy.input_dims[task_id] = new_input_dim
+    policy.output_dims[task_id] = new_output_dim
+    policy.output_activations[task_id] = new_output_activation
+    
+    policy.input_hidden[task_id] = nn.Linear(new_input_dim, policy.hidden_dims[0])
+    if not policy.shared_output:
+        policy.output[task_id] = nn.Linear(policy.hidden_dims[-1], new_output_dim)
+        policy.output_activations[task_id] = new_output_activation
 
-    if hasattr(act_space, 'n'):
-        act_dim = act_space.n
-        output_activation = lambda x: F.softmax(x, dim=-1)
-    else:
-        act_dim = act_space.shape[0]
-        output_activation = torch.tanh
+def get_flat_params(model, task_id):
+    """
+    Get flattened parameters of the model for a specific task.
+    """
+    task_id_output = task_id if not model.shared_output else 0
+    return torch.cat([p.data.view(-1) for p in model.input_hidden[task_id].parameters()] +
+                     [p.data.view(-1) for p in model.hidden.parameters()] +
+                     [p.data.view(-1) for p in model.output[task_id_output].parameters()])
 
-    input_layer = nn.Identity()
-    backbone = make_mlp(obs_dim, hidden_sizes)
-    output_layer = nn.Linear(hidden_sizes[-1], act_dim)
-    return Policy(input_layer, backbone, output_layer, output_activation)
-
-
-def get_flat_params(model):
-    return torch.cat([p.data.view(-1) for p in model.parameters()])
-
-def set_flat_params(model, flat_params):
+def set_flat_params(model, flat_params, task_id):
+    """
+    Set flattened parameters of the model for a specific task.
+    """
+    task_id_output = task_id if not model.shared_output else 0
     pointer = 0
-    for param in model.parameters():
+    for param in model.input_hidden[task_id].parameters():
         numel = param.numel()
         param.data.copy_(flat_params[pointer:pointer + numel].view(param.size()))
         pointer += numel
 
-def extract_and_transfer_hidden(theta, source_env, target_policy, hidden_sizes=[64, 64]):
-    """
-    Loads flat parameters into a temp policy for `source_env`,
-    then copies hidden layer weights into `target_policy`.
-    Skips input and output layers, only transfers backbone weights.
-    """
-    temp_policy = build_policy(source_env, hidden_sizes)
-    set_flat_params(temp_policy, theta)
-    # Copy hidden layers (excluding input/output) to target
-    src_layers = [m for m in temp_policy.backbone if isinstance(m, nn.Linear)]
-    tgt_layers = [m for m in target_policy.backbone if isinstance(m, nn.Linear)]
-    # Skip input and output layers
-    for src, tgt in zip(src_layers[1:-1], tgt_layers[1:-1]):
-        tgt.weight.data.copy_(src.weight.data)
-        tgt.bias.data.copy_(src.bias.data)
+    for param in model.hidden.parameters():
+        numel = param.numel()
+        param.data.copy_(flat_params[pointer:pointer + numel].view(param.size()))
+        pointer += numel
+
+    for param in model.output[task_id_output].parameters():
+        numel = param.numel()
+        param.data.copy_(flat_params[pointer:pointer + numel].view(param.size()))
+        pointer += numel
+

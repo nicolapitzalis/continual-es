@@ -1,54 +1,43 @@
 import ray
 import torch
-from core.policy import get_flat_params, set_flat_params, build_policy, extract_and_transfer_hidden
-from environments.env_utils import make_env
+from core.policy import Policy, get_flat_params, set_flat_params
+from environments.env_utils import make_env, exctract_envs_info
 from core.rollout import rollout
 
 @ray.remote
 class ESWorker:
-    def __init__(self, env_names, noise, hidden_sizes=[64, 64]):
+    def __init__(self, env_names, noise, hidden_sizes, shared_output):
         self.envs = [make_env(env_name) for env_name in env_names]
-        self.env = self.envs[0]
-        self.policies = [build_policy(env, hidden_sizes=hidden_sizes) for env in self.envs]
-        self.policy = self.policies[0]
+        input_dims, output_dims, output_activation = exctract_envs_info(self.envs)
+        self.policy = Policy(input_dims, hidden_sizes, output_dims, output_activation, shared_output)
         self.noise = noise
-        self.param_dim = get_flat_params(self.policy).shape[0]
+        self.param_dims = [get_flat_params(self.policy, i).shape[0] for i in range(len(env_names))]
 
-    def set_policy(self, theta):
-        set_flat_params(self.policy, theta)
+    def set_policy(self, theta, task_id):
+        set_flat_params(self.policy, theta, task_id)
 
-    def evaluate(self, theta, sigma, batch_size, max_steps=None):
+    def evaluate(self, task_id, theta, sigma, batch_size, max_steps=None):
         all_rewards = []
         all_steps = []
         indices = []
 
         for _ in range(batch_size):
             idx = self.noise.sample_index()
-            eps = self.noise.get(idx, self.param_dim)
+            eps = self.noise.get(idx, self.param_dims[task_id])
             indices.append(idx)
 
-            self.set_policy(theta + sigma * eps)
-            reward, steps = rollout(self.policy, self.env, max_steps)
+            self.set_policy(theta + sigma * eps, task_id)
+            reward, steps = rollout(self.policy, self.envs, task_id, max_steps)
             all_rewards.append(reward)
             all_steps.append(steps)
 
-            self.set_policy(theta)
+            self.set_policy(theta, task_id)
 
-            self.set_policy(theta - sigma * eps)
-            reward, steps = rollout(self.policy, self.env, max_steps)
+            self.set_policy(theta - sigma * eps, task_id)
+            reward, steps = rollout(self.policy, self.envs, task_id, max_steps)
             all_rewards.append(reward)
             all_steps.append(steps)
 
-            self.set_policy(theta)
+            self.set_policy(theta, task_id)
 
         return indices, all_rewards, all_steps
-    
-    def set_env(self, theta, current_env, next_env):
-        for i, env in enumerate(self.envs):
-            if env.spec.id == next_env:
-                self.env = env
-                extract_and_transfer_hidden(theta, current_env, self.policies[i])
-                self.policy = self.policies[i]
-                self.param_dim = get_flat_params(self.policy).shape[0]
-                return get_flat_params(self.policy)
-        raise ValueError(f"Environment {env_name} not found in worker's environments.")

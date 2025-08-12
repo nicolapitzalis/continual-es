@@ -1,15 +1,15 @@
 import torch
 import gymnasium as gym
-from core.policy import set_flat_params
 
-def rollout(policy, env, max_steps=None):
+def rollout(policy, envs, to_train, max_steps=None):
+    env = envs[to_train]
     obs, _ = env.reset(seed=None)
     total_reward = 0.0
     steps = 0
     while True:
         obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0)
         with torch.no_grad():
-            output = policy(obs_tensor).squeeze()
+            output = policy(obs_tensor, to_train).squeeze()
             if isinstance(env.action_space, gym.spaces.Discrete):
                 action = torch.argmax(output).item()
             else:

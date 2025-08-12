@@ -1,4 +1,4 @@
-from utils.utils import compute_centered_ranks
+from functional.utils import compute_centered_ranks
 
 def compute_gradient(rewards, noises, sigma, rank=True):
     dim = noises.shape[0]
