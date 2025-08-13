@@ -1,14 +1,13 @@
 import ray
-import torch
 from core.policy import Policy, get_flat_params, set_flat_params
-from environments.env_utils import make_env, exctract_envs_info
+from environments.env_utils import make_env, extract_envs_info
 from core.rollout import rollout
 
 @ray.remote
 class ESWorker:
     def __init__(self, env_names, noise, hidden_sizes, shared_output):
         self.envs = [make_env(env_name) for env_name in env_names]
-        input_dims, output_dims, output_activation = exctract_envs_info(self.envs)
+        input_dims, output_dims, output_activation = extract_envs_info(self.envs)
         self.policy = Policy(input_dims, hidden_sizes, output_dims, output_activation, shared_output)
         self.noise = noise
         self.param_dims = [get_flat_params(self.policy, i).shape[0] for i in range(len(env_names))]

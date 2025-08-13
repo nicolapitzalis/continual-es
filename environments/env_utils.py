@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import gymnasium as gym
 from core.rollout import rollout
 
@@ -8,7 +9,7 @@ def make_env(env_name, seed=None, render_mode=None):
         env.reset(seed=seed)
     return env
 
-def exctract_envs_info(envs):
+def extract_envs_info(envs):
     input_dims = [env.observation_space.shape[0] for env in envs]
     output_dims = [env.action_space.n if hasattr(env.action_space, 'n') else env.action_space.shape[0] for env in envs]
     activation = [torch.tanh if hasattr(env.action_space, 'shape') else lambda x: F.softmax(x, dim=-1) for env in envs]
