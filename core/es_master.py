@@ -7,8 +7,7 @@ from distributed.worker import ESWorker
 from core.noise_generator import NoiseGenerator
 from functional.utils import compute_centered_ranks, compute_weighted_ranks, fitness_shaping, z_score_ranks
 from core.updates import apply_weight_decay
-from core.rollout import rollout
-from environments.env_utils import make_env, exctract_envs_info, eval_policy
+from environments.env_utils import make_env, extract_envs_info, eval_policy
 
 def train(
     envs=[],
@@ -89,15 +88,15 @@ def train(
         policy.load_state_dict(model_checkpoint['state_dict'])
 
         # when using a checkpoint, tasks need to be in the same order as in the checkpoint
-        input_dims, output_dims, output_activation = exctract_envs_info(real_envs)
+        input_dims, output_dims, output_activation = extract_envs_info(real_envs)
         if input_dims != policy.input_dims:
-            print(f"Warning: input dimensions mismatch. Possible continual case with different task ordering. Substituting task-specific layers.")
+            print("Warning: input dimensions mismatch. Possible continual case with different task ordering. Substituting task-specific layers.")
             for i in range(len(input_dims)):
                 if input_dims[i] != policy.input_dims[i]:
                     substitute_task(policy, i, input_dims[i], output_dims[i], output_activation[i])
 
     else:               # single/multi task case
-        input_dims, output_dims, output_activation = exctract_envs_info(real_envs)
+        input_dims, output_dims, output_activation = extract_envs_info(real_envs)
         policy = Policy(input_dims, hidden_dims, output_dims, output_activation, shared_output=shared_output)
     
     theta = get_flat_params(policy, to_train)
@@ -204,7 +203,7 @@ def train(
         
         # Adaptive max steps
         # ------------------------------------------------
-        episode_lengths = [l for batch in all_steps for l in batch]
+        episode_lengths = [length for batch in all_steps for length in batch]
         if adaptive_max_steps and not multi_task_case:
             mean_length = sum(episode_lengths) / len(episode_lengths)
             max_steps = int(2 * mean_length)
