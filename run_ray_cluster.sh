@@ -60,20 +60,23 @@ done
 start=$(date +%s)
 python -u train_es.py \
     --ray-address $ip_head \
-    --envs Swimmer-v5 Hopper-v5 Walker2d-v5 \
-    --to-train 0 \
+    --envs Hopper-v5 Swimmer-v5 Walker2d-v5 \
+    --to-train 2 \
     --sigma 0.1 \
     --alpha 0.05 \
     --hidden-dims 64 64 \
-    --iterations 3000 \
+    --iterations 1000 \
     --num-workers 12 \
     --batch-size 32 \
     --weight-decay 0.0 \
     --rank-function centered \
     --adaptive-max-steps True \
-    --checkpoint-interval 1000 \
-    --shared-output True 
-    # --checkpoint '/home/n.pitzalis/es/chkpts/best_policy_log_Swimmer-v5_s0.1_a0.05_i1000_b32_w0.0_centered_amsTrue_Walker2d-v5_shared_output.pth'
+    --checkpoint-interval 0 \
+    --shared-output True \
+    --checkpoint '/home/n.pitzalis/es/chkpts/best_policy_log_Swimmer-v5_s0.1_a0.05_i1000_b32_w0.0_centered_amsTrue_Hopper-v5_replay0_shared_output_frozen_hidden.pth' \
+    --frozen-hidden True 
+    # --replay-batch-size 24 \
+    # --replay-weight 1.0 
     
 end=$(date +%s)
 echo "Elapsed time: $((end - start)) seconds"

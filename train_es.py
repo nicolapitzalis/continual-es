@@ -30,6 +30,10 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--shared-output", type=str2bool, default=False,
                         help="If True, all tasks share the same output layer. If False, each task has its own output layer.")
+    parser.add_argument("--replay-batch-size", type=int, default=0)
+    parser.add_argument("--replay-weight", type=float, default=1.0)
+    parser.add_argument("--frozen-hidden", type=str2bool, default=False,
+                        help="If True, the hidden layers are frozen during training. If False, they are updated.")
     args = parser.parse_args()
 
     print(f"\n{args}\n")
@@ -49,6 +53,9 @@ if __name__ == "__main__":
         adaptive_max_steps=args.adaptive_max_steps,
         checkpoint_interval=args.checkpoint_interval,
         checkpoint=args.checkpoint,
-        shared_output=args.shared_output
+        shared_output=args.shared_output,
+        replay_batch_size=args.replay_batch_size,
+        replay_weight=args.replay_weight,
+        frozen_hidden=args.frozen_hidden
     )
 

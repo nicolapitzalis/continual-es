@@ -12,8 +12,8 @@ class ESWorker:
         self.noise = noise
         self.param_dims = [get_flat_params(self.policy, i).shape[0] for i in range(len(env_names))]
 
-    def set_policy(self, theta, task_id):
-        set_flat_params(self.policy, theta, task_id)
+    def set_policy(self, theta, task_id, frozen_hidden=False):
+        set_flat_params(self.policy, theta, task_id, frozen_hidden=frozen_hidden)
 
     def evaluate(self, task_id, theta, sigma, batch_size, max_steps=None):
         all_rewards = []

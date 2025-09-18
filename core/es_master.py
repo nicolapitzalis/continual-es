@@ -6,7 +6,7 @@ from core.policy import Policy, get_flat_params, set_flat_params, substitute_tas
 from distributed.worker import ESWorker
 from core.noise_generator import NoiseGenerator
 from functional.utils import compute_centered_ranks, compute_weighted_ranks, fitness_shaping, z_score_ranks
-from core.updates import apply_weight_decay
+from core.updates import apply_weight_decay, compute_gradient, repack_replay_grad
 from environments.env_utils import make_env, extract_envs_info, eval_policy
 
 def train(
@@ -25,7 +25,10 @@ def train(
     adaptive_max_steps=True,
     checkpoint_interval=100,
     checkpoint=None,
-    shared_output=False
+    shared_output=False,
+    replay_batch_size=0,
+    replay_weight=1.0,
+    frozen_hidden=False
 ):
     ray.init(address=ray_address)
     print("Ray initialized")
@@ -40,6 +43,7 @@ def train(
     else:
         multi_task_case = False
     real_envs = [make_env(env_name) for env_name in envs]
+    prev_envs_ids = list(range(to_train)) if not multi_task_case else []
 
 
     # Files setup
@@ -53,18 +57,21 @@ def train(
     else:
         if to_train > 0:
             prev_envs = "_".join(envs[:to_train])
-            file_name = f"log_{envs[to_train]}_s{sigma}_a{alpha}_i{iterations}_b{batch_size}_w{weight_decay}_{rank_function}_ams{adaptive_max_steps}_{prev_envs}"
+            file_name = f"log_{envs[to_train]}_s{sigma}_a{alpha}_i{iterations}_b{batch_size}_w{weight_decay}_{rank_function}_ams{adaptive_max_steps}_{prev_envs}_replay{replay_batch_size}"
         else:
             file_name = f"log_{envs[to_train]}_s{sigma}_a{alpha}_i{iterations}_b{batch_size}_w{weight_decay}_{rank_function}_ams{adaptive_max_steps}"
         if shared_output:
             file_name += "_shared_output"
+        if frozen_hidden:
+            file_name += "_frozen_hidden"
+
         log_path = f"logs/csv/{file_name}.csv"
     os.makedirs("logs/csv", exist_ok=True)
     if multi_task_case:
         log_fields = ['iteration', 'avg_reward', 'std_reward', 'max_reward', 'total_steps', 'env'] + \
                 [f'{task}_eval_curr_policy' for task in envs]
     else:
-       log_fields = ['iteration', 'avg_reward', 'std_reward', 'max_reward', 'total_steps', 'eval_curr_policy'] + \
+        log_fields = ['iteration', 'avg_reward', 'std_reward', 'max_reward', 'total_steps', 'eval_curr_policy'] + \
                 [f'{task}_avg_reward' for task in envs[:to_train]]
 
     with open(log_path, 'w', newline='') as csvfile:
@@ -119,34 +126,38 @@ def train(
         ]
 
         results = ray.get(futures)
-        all_indices, all_rewards, all_steps = zip(*results)
-        all_rewards_flat = [r for batch in all_rewards for r in batch]
-        if rank_function == 'centered':
-            ranks = compute_centered_ranks(torch.tensor(all_rewards_flat))
-        elif rank_function == 'weighted':
-            ranks = compute_weighted_ranks(torch.tensor(all_rewards_flat))
-        elif rank_function == 'fitness_shaping':
-            ranks = fitness_shaping(torch.tensor(all_rewards_flat))
-        elif rank_function == 'z_score':
-            ranks = z_score_ranks(torch.tensor(all_rewards_flat))
-        else:
-            raise ValueError(f"Unknown rank function: {rank_function}")
+        grad, all_rewards_flat, all_steps = compute_gradient(results, theta.shape[0], rank_function, noise, sigma)
 
-        # reconstruct noises for each antithetic pair
-        noises = [
-            noise.get(idx, theta.shape[0])
-            for batch_size in all_indices
-            for idx in batch_size
-        ]
-        noises_tensor = torch.stack([
-            val for eps in noises for val in (eps, -eps)
-        ])
+        # Replay mechanism
+        # ------------------------------------------------
+        replay_tot_steps = []
+        replay_grad = torch.zeros_like(grad)
+        if replay_batch_size > 0 and prev_envs_ids:
+            for i in prev_envs_ids:
+                theta_env = get_flat_params(policy, i)
+                replay_futures = [
+                    worker.evaluate.remote(
+                        i, theta_env, sigma, replay_batch_size, max_steps=None
+                    )
+                    for worker in workers
+                ]
+                replay_results = ray.get(replay_futures)
+                grad_rep, replay_rewards, replay_steps = compute_gradient(replay_results, theta_env.shape[0], rank_function, noise, sigma)
+                packed = repack_replay_grad(grad_rep, policy, i, to_train)
+                replay_grad += packed
+                replay_tot_steps.extend([length for batch in replay_steps for length in batch])
+                print(f"Replay for env {envs[i]}: avg reward = {torch.tensor(replay_rewards).mean().item():.2f}")
 
-        # compute gradient and update theta
-        grad = (ranks.unsqueeze(1) * noises_tensor).mean(dim=0) / sigma
+            grad += replay_weight * replay_grad / len(prev_envs_ids)
+        # ------------------------------------------------
+
         theta += alpha * grad
         theta = apply_weight_decay(theta, weight_decay)
-        ray.get([worker.set_policy.remote(theta, to_train) for worker in workers])
+        set_flat_params(policy, theta, to_train, frozen_hidden=frozen_hidden)
+        ray.get([worker.set_policy.remote(theta, to_train, frozen_hidden) for worker in workers])
+
+        if frozen_hidden:
+            theta = get_flat_params(policy, to_train)  # re-fetch theta after setting it (it keeps the hidden layers frozen)
         
         avg_reward = torch.tensor(all_rewards_flat).mean()
         std_reward = torch.tensor(all_rewards_flat).std()
@@ -171,9 +182,7 @@ def train(
         # Evaluation phase
         # ------------------------------------------------
         if t == 0 or (t +1) % 10 == 0:
-            # evaluate current env (clean policy)
-            set_flat_params(policy, theta, to_train)        # updates policy[to_train] (hiddens are updated)
-            
+            # evaluate current env (clean policy)            
             range_envs = range(len(envs)) if multi_task_case else [to_train]
             for i in range_envs:
                 eval_policy_res = eval_policy(policy, real_envs, i, max_steps=max_steps, iterations=10)
@@ -197,13 +206,13 @@ def train(
             writer.writerow(log_row)
 
         if multi_task_case:
-            set_flat_params(policy, theta, to_train)  # updates policy[to_train]
             to_train = (to_train + 1) % len(envs)           # switch to next task
             theta = get_flat_params(policy, to_train)  # get new theta for the next task
         
         # Adaptive max steps
         # ------------------------------------------------
         episode_lengths = [length for batch in all_steps for length in batch]
+        episode_lengths.extend(replay_tot_steps)  # add replay steps if any
         if adaptive_max_steps and not multi_task_case:
             mean_length = sum(episode_lengths) / len(episode_lengths)
             max_steps = int(2 * mean_length)
@@ -243,4 +252,4 @@ def train(
         'state_dict': policy.state_dict(),
     }, f"chkpts/best_policy_{file_name}.pth")
 
-       
+    

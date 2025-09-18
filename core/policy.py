@@ -48,7 +48,7 @@ def get_flat_params(model, task_id):
                      [p.data.view(-1) for p in model.hidden.parameters()] +
                      [p.data.view(-1) for p in model.output[task_id_output].parameters()])
 
-def set_flat_params(model, flat_params, task_id):
+def set_flat_params(model, flat_params, task_id, frozen_hidden=False):
     """
     Set flattened parameters of the model for a specific task.
     """
@@ -58,11 +58,12 @@ def set_flat_params(model, flat_params, task_id):
         numel = param.numel()
         param.data.copy_(flat_params[pointer:pointer + numel].view(param.size()))
         pointer += numel
-
-    for param in model.hidden.parameters():
-        numel = param.numel()
-        param.data.copy_(flat_params[pointer:pointer + numel].view(param.size()))
-        pointer += numel
+    
+    if not frozen_hidden:
+        for param in model.hidden.parameters():
+            numel = param.numel()
+            param.data.copy_(flat_params[pointer:pointer + numel].view(param.size()))
+            pointer += numel
 
     for param in model.output[task_id_output].parameters():
         numel = param.numel()
