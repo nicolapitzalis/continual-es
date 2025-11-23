@@ -1,4 +1,4 @@
-from core.policy import get_flat_params, set_flat_params
+from core.policy_seq import get_flat_params, set_flat_params
 import torch
 
 def sample_antithetic_perturbation(num_samples, sigma, env, policy, max_steps, rollout_fn):
@@ -10,7 +10,7 @@ def sample_antithetic_perturbation(num_samples, sigma, env, policy, max_steps, r
         for sign in [1, -1]:
             perturbed = theta + sign * (sigma * eps)
             set_flat_params(policy, perturbed)
-            reward = rollout_fn(policy, env, max_steps)
+            reward, _ = rollout_fn(policy, env, max_steps)
             rewards.append(reward)
             set_flat_params(policy, theta)
         noises.append(eps)

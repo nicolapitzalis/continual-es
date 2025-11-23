@@ -60,21 +60,22 @@ done
 start=$(date +%s)
 python -u train_es.py \
     --ray-address $ip_head \
-    --envs Hopper-v5 Swimmer-v5 Walker2d-v5 \
-    --to-train 2 \
+    --envs CartPole-v1 \
+    --to-train 0 \
     --sigma 0.1 \
-    --alpha 0.05 \
+    --alpha 0.03 \
     --hidden-dims 64 64 \
-    --iterations 1000 \
+    --iterations 500 \
     --num-workers 12 \
     --batch-size 32 \
     --weight-decay 0.0 \
     --rank-function centered \
-    --adaptive-max-steps True \
     --checkpoint-interval 0 \
-    --shared-output True \
-    --checkpoint '/home/n.pitzalis/es/chkpts/best_policy_log_Swimmer-v5_s0.1_a0.05_i1000_b32_w0.0_centered_amsTrue_Hopper-v5_replay0_shared_output_frozen_hidden.pth' \
-    --frozen-hidden True 
+    --shared-output False 
+    # --checkpoint /home/n.pitzalis/es/chkpts/best_policy_log_Hopper-v5_s0.1_a0.05_i1000_b32_w0.0_centered_amsTrue_Walker2d-v5_replay0_shared_output_frozen_hidden.pth \
+    # --frozen-hidden True 
+    # --adaptive-max-steps True \
+    # --fwt True \
     # --replay-batch-size 24 \
     # --replay-weight 1.0 
     

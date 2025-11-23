@@ -28,7 +28,8 @@ def train(
     shared_output=False,
     replay_batch_size=0,
     replay_weight=1.0,
-    frozen_hidden=False
+    frozen_hidden=False,
+    fwt=False
 ):
     ray.init(address=ray_address)
     print("Ray initialized")
@@ -73,6 +74,8 @@ def train(
     else:
         log_fields = ['iteration', 'avg_reward', 'std_reward', 'max_reward', 'total_steps', 'eval_curr_policy'] + \
                 [f'{task}_avg_reward' for task in envs[:to_train]]
+    if fwt:
+        log_fields += [f'{task}_fwt_before' for task in envs[to_train+1:]]
 
     with open(log_path, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=log_fields)
@@ -199,6 +202,15 @@ def train(
                     log_row[f'{envs[i]}_avg_reward'] = old_env_rew
                     print(f"Eval old env {envs[i]}: avg reward = {old_env_rew:.2f}")
         # ------------------------------------------------
+
+        # Evaluation of next task for Forward Transfer calculation
+        #------------------------------------------------
+        if fwt and (t == 0 or (t +1) % 10 == 0):
+            for i, task in enumerate(envs[to_train+1:], start=to_train+1):
+                fwt_rew = eval_policy(policy, real_envs, i, max_steps=max_steps, iterations=10)
+                log_row[f'{task}_fwt_before'] = fwt_rew
+                print(f"Eval next env {task} for FWT: avg reward = {fwt_rew:.2f}")
+        #------------------------------------------------
 
         # Save log
         with open(log_path, 'a', newline='') as csvfile:
