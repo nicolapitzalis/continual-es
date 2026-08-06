@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distributed-continual-es"
+version = "0.1.0"
+description = "Distributed evolution strategies for continual reinforcement learning"
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium[mujoco]>=1.1",
+    "numpy>=1.26",
+    "ray>=2.40",
+    "torch>=2.4",
+]
+
+[project.optional-dependencies]
+plot = [
+    "matplotlib>=3.8",
+    "pandas>=2.0",
+]
+dev = [
+    "build",
+    "matplotlib>=3.8",
+    "pandas>=2.0",
+    "ruff",
+]
+
+[project.scripts]
+es-train = "es.cli.train:main"
+es-evaluate = "es.cli.evaluate:main"
+es-plot = "es.cli.plot:main"
+
+[tool.setuptools.packages.find]
+include = ["es*"]
+
+[tool.ruff]
+line-length = 88
+

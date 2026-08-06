@@ -3,13 +3,16 @@
 #SBATCH --nodes=4
 #SBATCH --exclusive
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=56
 #SBATCH --time=24:00:00
-#SBATCH --output=logs/%x_%j.out
+#SBATCH --output=logs/sbatch_logs/%x_%j.out
+
+set -euo pipefail
 
 # Activate the virtual environment
 eval "$(conda shell.bash hook)"
-conda activate es
+conda_env_name=${CONDA_ENV_NAME:-es}
+conda activate "$conda_env_name"
 echo "Virtual environment activated."
 echo "Starting SLURM job on $(hostname)"
 
@@ -40,7 +43,7 @@ echo "IP Head: $ip_head"
 echo "Starting HEAD at $head_node"
 srun --nodes=1 --ntasks=1 -w "$head_node" \
     ray start --head --node-ip-address="$head_node_ip" --port=$port \
-    --num-cpus "${SLURM_CPUS_PER_TASK}" --block &
+    --num-cpus "$((SLURM_CPUS_PER_TASK - 2))" --block &
 
     # optional, though may be useful in certain versions of Ray < 1.0.
 sleep 10
@@ -58,27 +61,9 @@ for ((i = 1; i <= worker_num; i++)); do
 done
 
 start=$(date +%s)
-python -u train_es.py \
-    --ray-address $ip_head \
-    --envs CartPole-v1 \
-    --to-train 0 \
-    --sigma 0.1 \
-    --alpha 0.03 \
-    --hidden-dims 64 64 \
-    --iterations 500 \
-    --num-workers 12 \
-    --batch-size 32 \
-    --weight-decay 0.0 \
-    --rank-function centered \
-    --checkpoint-interval 0 \
-    --shared-output False 
-    # --checkpoint /home/n.pitzalis/es/chkpts/best_policy_log_Hopper-v5_s0.1_a0.05_i1000_b32_w0.0_centered_amsTrue_Walker2d-v5_replay0_shared_output_frozen_hidden.pth \
-    # --frozen-hidden True 
-    # --adaptive-max-steps True \
-    # --fwt True \
-    # --replay-batch-size 24 \
-    # --replay-weight 1.0 
+python -u -m es.cli.train \
+    --ray-address "$ip_head" \
+    "$@"
     
 end=$(date +%s)
 echo "Elapsed time: $((end - start)) seconds"
-
